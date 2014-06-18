@@ -1,23 +1,35 @@
 package somepackage;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.google.gson.Gson;
 import org.apache.spark.api.java.function.*;
 import org.apache.spark.streaming.*;
 import org.apache.spark.streaming.api.java.*;
 import org.apache.spark.streaming.dstream.InputDStream;
+import org.codehaus.jackson.map.DeserializationConfig;
+import org.codehaus.jackson.map.ObjectMapper;
 import scala.Tuple2;
+
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
-
-public class streamFromDirectory {
+public class readJson {
   public static void main(String[] args) {
     JavaStreamingContext jssc = new JavaStreamingContext("local", "JavaNetworkWordCount", new Duration(1000));
     JavaDStream<String> lines = jssc.textFileStream("/data/spark-streaming-input/");
     JavaDStream<String> words = lines.flatMap( new FlatMapFunction<String, String>() {
-          @Override
-          public Iterable<String> call(String x) {
-            return Arrays.asList(x.split(" "));
-          }
-        });
+      @Override
+      public Iterable<String> call(String x) {
+        Gson gson = new Gson();
+        User user = gson.fromJson( x, User.class );
+        ArrayList<String> arr = new ArrayList<String>();
+        arr.add(user.error);
+        return arr;
+      }
+    });
     JavaPairDStream<String, Integer> pairs = words.mapToPair(new PairFunction<String, String, Integer>() {
       @Override
       public Tuple2<String, Integer> call(String s) throws Exception {
@@ -34,5 +46,26 @@ public class streamFromDirectory {
 
     jssc.start();              // Start the computation
     jssc.awaitTermination();   // Wait for the computation to terminate
+  }
+}
+class User {
+
+  public String age = "29";
+  public String name = "mkyong";
+  public List<String> messages = new ArrayList<String>() {
+    {
+      add("msg 1");
+      add("msg 2");
+      add("msg 3");
+    }
+  };
+  public String error = "";
+
+  //getter and setter methods
+
+  @Override
+  public String toString() {
+    return "User [age=" + age + ", name=" + name + ", " +
+        "messages=" + messages + "]";
   }
 }
