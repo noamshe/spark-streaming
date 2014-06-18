@@ -1,25 +1,18 @@
 package somepackage;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.google.gson.Gson;
 import org.apache.spark.api.java.function.*;
 import org.apache.spark.streaming.*;
 import org.apache.spark.streaming.api.java.*;
-import org.apache.spark.streaming.dstream.InputDStream;
-import org.codehaus.jackson.map.DeserializationConfig;
-import org.codehaus.jackson.map.ObjectMapper;
 import scala.Tuple2;
-
-import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 public class readJson {
   public static void main(String[] args) {
     JavaStreamingContext jssc = new JavaStreamingContext("local", "JavaNetworkWordCount", new Duration(1000));
     JavaDStream<String> lines = jssc.textFileStream("/data/spark-streaming-input/");
+    //JavaDStream<String> lines = jssc.textFileStream("hdfs://localhost:7000/dearnoam/");
     JavaDStream<String> words = lines.flatMap( new FlatMapFunction<String, String>() {
       @Override
       public Iterable<String> call(String x) {
