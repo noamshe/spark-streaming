@@ -29,15 +29,13 @@ public class mainStreamer {
       public Iterable<String> call(SparkFlumeEvent sparkFlumeEvent) throws Exception {
         Gson gson = new Gson();
         String ss = sparkFlumeEvent.event().toString();
-        String myJson = ss.substring(ss.indexOf("bytes") + 9,ss.length()-4);
-        String type = "imp";
+        String myJson = ss.substring(ss.indexOf("bytes") + 9,ss.length()-3);
         //AvroJson avro = gson.fromJson( ss, AvroJson.class );
         Params requestParam = gson.fromJson(myJson, Params.class);
-        return Lists.newArrayList(requestParam.params.campaign_id);
+        return Lists.newArrayList(requestParam.params.campaign_id + ":" + TypeEnum.IMP);
       }
 
     });
-    System.out.println(words);
     JavaDStream<Object> wordCounts = words.mapToPair(
         new PairFunction<String, String, Integer>() {
           @Override
@@ -52,7 +50,17 @@ public class mainStreamer {
     }).flatMap(new FlatMapFunction<Tuple2<String, Integer>, Object>() {
       @Override
       public Iterable<Object> call(Tuple2<String, Integer> stringIntegerTuple2) throws Exception {
-        String mysqlQuery = "insert on duplicate (campaign_id, count, date) values (" + stringIntegerTuple2._1().toString() + ", " + stringIntegerTuple2._2().toString() + ", " + new Date().toString() + ")";
+        String[] keyAndType = stringIntegerTuple2._1().split(":");
+        TypeEnum type = TypeEnum.valueOf(keyAndType[1]);
+        String mysqlQuery = "insert into [1] (campaign_creative_id, [2], date) values (" + keyAndType[0] + "," + stringIntegerTuple2._2() + ", " + new Date().toString() + ") on duplicate key update [2] = [2] + " + stringIntegerTuple2._2();
+        switch (type) {
+          case IMP:
+            mysqlQuery.replace("[1]")
+            break;
+          case CLICK:
+            break;
+          default:
+        }
         return Lists.newArrayList((Object) (mysqlQuery));
       }
     });
@@ -65,4 +73,5 @@ public class mainStreamer {
     ssc.awaitTermination();
   }
 }
+
 
