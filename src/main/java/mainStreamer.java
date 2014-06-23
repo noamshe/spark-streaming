@@ -1,37 +1,68 @@
+import com.google.common.collect.Lists;
+import com.google.gson.Gson;
+import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.function.*;
 import org.apache.spark.streaming.*;
 import org.apache.spark.streaming.api.java.*;
 import scala.Tuple2;
+import org.apache.spark.streaming.flume.*;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Date;
+import java.util.List;
+import java.util.regex.Pattern;
 
 public class mainStreamer {
-  public static void main(String[] args) {
-    JavaStreamingContext jssc = new JavaStreamingContext("local", "JavaNetworkWordCount", new Duration(1000));
-    // Create a DStream that will connect to serverIP:serverPort, like localhost:9999
-    JavaReceiverInputDStream<String> lines = jssc.socketTextStream("localhost", 9999);
-    // Split each line into words
-    JavaDStream<String> words = lines.flatMap(
-        new FlatMapFunction<String, String>() {
-          @Override
-          public Iterable<String> call(String x) {
-            return Arrays.asList(x.split(" "));
-          }
-        });
-    // Count each word in each batch
-    JavaPairDStream<String, Integer> pairs = words.mapToPair(new PairFunction<String, String, Integer>() {
-      @Override public Tuple2<String, Integer> call(String s) throws Exception {
-        return new Tuple2<String, Integer>(s, 1);
-      }
-    });
-    JavaPairDStream<String, Integer> wordCounts = pairs.reduceByKey(new Function2<Integer, Integer, Integer>() {
-      @Override public Integer call(Integer i1, Integer i2) throws Exception {
-        return i1 + i2;
-      }
-    });
-    wordCounts.print();
+    private static final Pattern SPACE = Pattern.compile(" ");
 
-    jssc.start();              // Start the computation
-    jssc.awaitTermination();   // Wait for the computation to terminate
-  }
+    public static void main(String[] args) {
+        Duration batchInterval = new Duration(12000);
+        SparkConf sparkConf = new SparkConf().setAppName("JavaFlumeEventCount");
+        sparkConf.setMaster("local[2]");
+
+        JavaStreamingContext ssc = new JavaStreamingContext(sparkConf, batchInterval) ;
+        JavaReceiverInputDStream<SparkFlumeEvent> flumeStream = FlumeUtils.createStream(ssc, "10.0.1.36", 9999);
+
+        JavaDStream<String> words = flumeStream.flatMap(new FlatMapFunction<SparkFlumeEvent, String>() {
+            @Override
+            public Iterable<String> call(SparkFlumeEvent sparkFlumeEvent) throws Exception {
+                Gson gson = new Gson();
+                String ss = sparkFlumeEvent.event().toString();
+                String myJson = ss.substring(ss.indexOf("bytes") + 9,ss.length()-4);
+                //AvroJson avro = gson.fromJson( ss, AvroJson.class );
+                Impression imp = gson.fromJson( myJson, Impression.class );
+                //return Lists.newArrayList(SPACE.split(avro.body.bytes));
+                return Lists.newArrayList(imp.campaign_id);
+            }
+
+        });
+        System.out.println(words);
+        JavaDStream<Object> wordCounts = words.mapToPair(
+                new PairFunction<String, String, Integer>() {
+                    @Override
+                    public Tuple2<String, Integer> call(String s) {
+                        return new Tuple2<String, Integer>(s, 1);
+                    }
+                }).reduceByKey(new Function2<Integer, Integer, Integer>() {
+            @Override
+            public Integer call(Integer i1, Integer i2) {
+                return i1 + i2;
+            }
+        }).flatMap(new FlatMapFunction<Tuple2<String, Integer>, Object>() {
+            @Override
+            public Iterable<Object> call(Tuple2<String, Integer> stringIntegerTuple2) throws Exception {
+                String mysqlQuery = "insert on duplicate (campaign_id, count, date) values (" + stringIntegerTuple2._1().toString() + ", " + stringIntegerTuple2._2().toString() + ", " + new Date().toString() + ")";
+                return Lists.newArrayList((Object) (mysqlQuery));
+            }
+        });
+
+
+//        flumeStream.count().print();
+        wordCounts.print();
+        ssc.start();
+
+        ssc.awaitTermination();
+    }
 }
+
