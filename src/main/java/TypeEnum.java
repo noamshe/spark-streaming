@@ -1,0 +1,4 @@
+public enum TypeEnum {
+  IMPRESSION, CLICK, CONVERSION, RESPONSE, WIN, BID
+}
+

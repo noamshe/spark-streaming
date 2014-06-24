@@ -7,10 +7,6 @@ import org.apache.spark.streaming.api.java.*;
 import scala.Tuple2;
 import org.apache.spark.streaming.flume.*;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Date;
-import java.util.List;
 import java.util.regex.Pattern;
 
 public class mainStreamer {
@@ -29,39 +25,84 @@ public class mainStreamer {
       public Iterable<String> call(SparkFlumeEvent sparkFlumeEvent) throws Exception {
         Gson gson = new Gson();
         String ss = sparkFlumeEvent.event().toString();
-        String myJson = ss.substring(ss.indexOf("bytes") + 9,ss.length()-3);
-        //AvroJson avro = gson.fromJson( ss, AvroJson.class );
+        String typeFromHeader = ss.substring(ss.indexOf("type") + 8, ss.indexOf("type") + 11);
+        String myJson = ss.substring(ss.indexOf("bytes") + 9, ss.length() - 3);
+        TypeEnum type = TypeEnum.valueOf(typeFromHeader);
+
         Params requestParam = gson.fromJson(myJson, Params.class);
-        return Lists.newArrayList(requestParam.params.campaign_id + ":" + TypeEnum.IMP);
+        String amount = "0";
+        switch (type) {
+          case CONVERSION:
+            amount = requestParam.params.payout;
+            break;
+          case WIN:
+            amount = requestParam.params.price;
+            break;
+          default:
+            amount = "0";
+        }
+
+        return Lists.newArrayList(requestParam.params.ccrid + ":" + typeFromHeader + ":" + amount);
       }
 
     });
     JavaDStream<Object> wordCounts = words.mapToPair(
-        new PairFunction<String, String, Integer>() {
+        new PairFunction<String, String, CloudObject>() {
           @Override
-          public Tuple2<String, Integer> call(String s) {
-            return new Tuple2<String, Integer>(s, 1);
+          public Tuple2<String, CloudObject> call(String s) {
+            String[] keyAndType = s.split(":");
+            TypeEnum type = TypeEnum.valueOf(keyAndType[1]);
+            String amount = keyAndType[2];
+
+            CloudObject cloudObject = new CloudObject();
+            switch (type) {
+              case IMPRESSION:
+                cloudObject.impression = 1;
+                break;
+              case BID:
+                cloudObject.bid = 1;
+                break;
+              case CONVERSION:
+                cloudObject.conversion = 1;
+                cloudObject.revenue = Double.valueOf(amount);
+                break;
+              case CLICK:
+                cloudObject.click = 1;
+                break;
+              case WIN:
+                cloudObject.cost = Double.valueOf(amount);
+                cloudObject.win = 1;
+                break;
+            }
+
+            return new Tuple2<String, CloudObject>(keyAndType[0], cloudObject);
           }
-        }).reduceByKey(new Function2<Integer, Integer, Integer>() {
+        }).reduceByKey(new Function2<CloudObject, CloudObject, CloudObject>() {
+
+
       @Override
-      public Integer call(Integer i1, Integer i2) {
-        return i1 + i2;
+      public CloudObject call(CloudObject cloudObject1, CloudObject cloudObject2) throws Exception {
+
+        return cloudObject1.add(cloudObject2);
       }
-    }).flatMap(new FlatMapFunction<Tuple2<String, Integer>, Object>() {
+    }).flatMap(new FlatMapFunction<Tuple2<String, CloudObject>, Object>() {
       @Override
-      public Iterable<Object> call(Tuple2<String, Integer> stringIntegerTuple2) throws Exception {
-        String[] keyAndType = stringIntegerTuple2._1().split(":");
-        TypeEnum type = TypeEnum.valueOf(keyAndType[1]);
-        String mysqlQuery = "insert into [1] (campaign_creative_id, [2], date) values (" + keyAndType[0] + "," + stringIntegerTuple2._2() + ", " + new Date().toString() + ") on duplicate key update [2] = [2] + " + stringIntegerTuple2._2();
-        switch (type) {
-          case IMP:
-            mysqlQuery.replace("[1]")
-            break;
-          case CLICK:
-            break;
-          default:
-        }
-        return Lists.newArrayList((Object) (mysqlQuery));
+      public Iterable<Object> call(Tuple2<String, CloudObject> stringIntegerTuple2) throws Exception {
+//        String[] keyAndType = stringIntegerTuple2._1().split(":");
+//        TypeEnum type = TypeEnum.valueOf(keyAndType[1]);
+//        String mysqlQuery = "insert into [1] (campaign_creative_id, [2], date) values (" + keyAndType[0] + "," + stringIntegerTuple2._2() + ", " + new Date().toString() + ") on duplicate key update [2] = [2] + " + stringIntegerTuple2._2();
+//        switch (type) {
+//          case IMPRESSION:
+//            mysqlQuery.replace("[1]")
+//            break;
+//          case CLICK:
+//            break;
+//          default:
+//        }
+
+
+        // TBD write the output sqls
+        return Lists.newArrayList((Object) (stringIntegerTuple2._1().toString() + " - " + ((CloudObject)stringIntegerTuple2._2()).toString()));
       }
     });
 
